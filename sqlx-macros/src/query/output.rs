@@ -30,6 +30,7 @@ struct ColumnDecl {
 
 enum ColumnOverride {
     NonNull,
+    Nullable,
     Wildcard,
     Exact(Type),
 }
@@ -53,14 +54,15 @@ pub fn columns_to_rust<DB: DatabaseExt>(describe: &Describe<DB>) -> crate::Resul
             let type_ = match decl.r#override {
                 Some(ColumnOverride::Exact(ty)) => Some(ty.to_token_stream()),
                 Some(ColumnOverride::Wildcard) => None,
-                Some(ColumnOverride::NonNull) => Some(get_column_type(i, column)),
-                None => {
+                _ => {
                     let type_ = get_column_type(i, column);
 
-                    if !column.not_null.unwrap_or(false) {
-                        Some(quote! { Option<#type_> })
-                    } else {
+                    if matches!(decl.r#override, Some(ColumnOverride::NonNull))
+                        || column.not_null.unwrap_or(false)
+                    {
                         Some(type_)
+                    } else {
+                        Some(quote! { Option<#type_> })
                     }
                 }
             };
@@ -202,6 +204,10 @@ impl Parse for ColumnOverride {
             input.parse::<Token![!]>()?;
 
             Ok(ColumnOverride::NonNull)
+        } else if lookahead.peek(Token![?]) {
+            input.parse::<Token![?]>()?;
+
+            Ok(ColumnOverride::Nullable)
         } else {
             Err(lookahead.error())
         }
